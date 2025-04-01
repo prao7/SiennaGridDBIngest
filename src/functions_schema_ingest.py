@@ -31,32 +31,32 @@ def insert_prime_movers(conn, prime_mover, fuel=None, description=None):
     return cur.lastrowid
 
 
-def insert_planning_regions(conn, name, description=None):
+def insert_planning_regions(conn, id, name, description=None):
     """
     Inserts a row into the planning_regions table.
     """
 
     sql = """
-    INSERT INTO planning_regions (name, description)
-    VALUES (?, ?)
+    INSERT INTO planning_regions (id, name, description)
+    VALUES (?, ?, ?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (name, description))
+    cur.execute(sql, (id, name, description))
     conn.commit()
     return cur.lastrowid
 
 
-def insert_balancing_topologies(conn, name, area=None, participation_factor=1.0, description=None):
+def insert_balancing_topologies(conn, bus_id, name, area=None, participation_factor=1.0, description=None):
     """
     Inserts a row into the balancing_topologies table.
     """
 
     sql = """
-    INSERT INTO balancing_topologies (name, area, participation_factor, description)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO balancing_topologies (id, name, area, participation_factor, description)
+    VALUES (?, ?, ?, ?, ?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (name, area, participation_factor, description))
+    cur.execute(sql, (bus_id, name, area, participation_factor, description))
     conn.commit()
     return cur.lastrowid
 

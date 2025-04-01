@@ -98,7 +98,6 @@ def clear_database(conn):
         cursor.execute(f"DROP TABLE IF EXISTS {table_name[0]};")
     conn.commit()
     cursor.execute("PRAGMA foreign_keys = ON;")  # Re-enable foreign key constraints
-    conn.close()
 
 
 def apply_schema(conn, schema_path):
@@ -117,13 +116,12 @@ def apply_schema(conn, schema_path):
     
     # Commit the changes and close the connection
     conn.commit()
-    conn.close()
     print("Schema applied successfully.")
 
 
 def create_db(db_path):
-    """
-    Creates a database from the db_path
-    """
-
+    # Ensure the directory exists
+    directory = os.path.dirname(db_path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
     return sqlite3.connect(db_path)

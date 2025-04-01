@@ -1,9 +1,9 @@
 import sqlite3
 import pandas as pd
 import numpy as np
-import SiennaGridDBIngest.src.functions.functions_RTS_custom as functions_RTS_custom
-import SiennaGridDBIngest.src.functions.functions_handlers as functions_handlers
-import SiennaGridDBIngest.src.functions.functions_5bus_custom as functions_5bus_custom
+import functions_RTS_custom as functions_RTS_custom
+import functions_handlers as functions_handlers
+import functions_5bus_custom as functions_5bus_custom
 
 
 def ingest_RTS(db_path, RTS_path, schema_path):
@@ -55,11 +55,11 @@ def main():
     """
     Main code logic goes here. Please input the paths to the 5 bus and RTS directories, as well as the database paths.
     """
-    RTS_db_path = '/path/to/database.db'
-    five_bus_db_path = '/path/to/5bus_database.db'
-    RTS_directory_path = '/path/to/RTS'
-    five_bus_directory_path = '/path/to/5bus'
-    schema_path = '/path/to/schema'
+    RTS_db_path = 'SiennaGridDBIngest/output_db/RTS.db'
+    five_bus_db_path = 'SiennaGridDBIngest/output_db/5bus_database.db'
+    RTS_directory_path = '/Users/prao/GitHub_Repos/data_interoperability/PowerSystemsInvestmentsPortfoliosTestData/RTS_inputs'
+    five_bus_directory_path = '/Users/prao/GitHub_Repos/data_interoperability/PowerSystemsTestData/5-Bus'
+    schema_path = '/Users/prao/GitHub_Repos/data_interoperability/SiennaGridDB/schema.sql'
     
     ingest_RTS(RTS_db_path, RTS_directory_path, schema_path)
     ingest_5bus(five_bus_db_path, five_bus_directory_path, schema_path)

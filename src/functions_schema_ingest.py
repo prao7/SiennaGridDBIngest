@@ -310,3 +310,19 @@ def insert_probabilistic_time_series(conn, time_series_id, timestamp, value, uui
     return cur.lastrowid
 
 
+def get_entity_id(conn, entity_type, entity_id):
+    """
+    Fetches the entity ID from the database.
+    """
+
+    sql = """
+    SELECT id FROM entities WHERE entity_type = ? AND entity_id = ?
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (entity_type, entity_id))
+    result = cur.fetchone()
+
+    if result:
+        return result[0]
+    else:
+        return None

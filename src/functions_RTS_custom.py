@@ -35,7 +35,7 @@ def insert_buses_RTS(conn, directory_structure):
 
     for _, row in bus_data_df.iterrows():
         # Insert the data into the database
-        functions_schema_ingest.insert_balancing_topologies(
+        bus_id = functions_schema_ingest.insert_balancing_topologies(
                             conn,
                             row['Bus_ID'],
                             row['Bus_Name'],
@@ -43,9 +43,15 @@ def insert_buses_RTS(conn, directory_structure):
                             row['Participation Factor'],
                             row['Bus_Type']
                         )
+        
+        bus_entity_id = functions_schema_ingest.insert_entities(conn, 'balancing_topologies', bus_id)
 
         # Insert lat long data into supplemental attributes
-        functions_schema_ingest.insert_supplemental_attributes(conn, 'geolocation', json.dumps({'lat': row['lat'], 'lon': row['lng']}))
+        sup_at_id = functions_schema_ingest.insert_supplemental_attributes(conn, 'geolocation', json.dumps({'lat': row['lat'], 'lon': row['lng']}))
+
+        # Insert the association into the supplemental_attributes_association table
+        functions_schema_ingest.insert_supplemental_attributes_association(conn, sup_at_id, bus_entity_id)
+
 
 
 def insert_regions_RTS(conn, directory_structure):
@@ -64,11 +70,73 @@ def insert_regions_RTS(conn, directory_structure):
         functions_schema_ingest.insert_planning_regions(conn, int(region), f"Region {region}")
 
 
-
+def insert_interchanges_RTS(conn, directory_structure):
+    pass
 
 
 def insert_branches_RTS(conn, directory_structure):
-    pass
+    """
+    Insert the transmission data into the database.
+    """
+    # Get the branch data from the directory structure
+    branch_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'branch.csv'))
+
+    for _, row in branch_data_df.iterrows():
+        # First, create the physical arcs relationship
+        from_bus_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', row['From Bus'])
+        to_bus_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', row['To Bus'])
+
+        # Add the arcs to the database
+        if from_bus_id is not None and to_bus_id is not None:
+            arc_id = functions_schema_ingest.insert_arcs(
+                            conn,
+                            from_bus_id,
+                            to_bus_id)
+
+            # Then, insert the transmission lines
+            if arc_id is not None:
+                # Insert the data into the database
+                transmission_id = functions_schema_ingest.insert_transmission_lines(
+                                    conn,
+                                    row['Cont Rating'],
+                                    row['STE Rating'],
+                                    row['LTE Rating'],
+                                    row['Length'],
+                                    arc_id
+                                )
+                
+                # Get the entity ID for the transmission line
+                trans_entity_id = functions_schema_ingest.get_entity_id(conn, 'transmission_lines', transmission_id)
+                
+                # Insert the X, R and B data as attributes
+                x_at_id = functions_schema_ingest.insert_attributes(
+                                    conn,
+                                    'transmission_lines',
+                                    "Reactance",
+                                    row['X'])
+
+                # Insert relationship between x and attribute_association
+                functions_schema_ingest.insert_attributes_associations(conn, x_at_id, trans_entity_id)
+
+                # Insert the B data as attributes
+                b_at_id = functions_schema_ingest.insert_attributes(
+                                    conn,
+                                    'transmission_lines',
+                                    "Susceptance",
+                                    row['B'])
+                
+                # Insert relationship between b and attribute_association
+                functions_schema_ingest.insert_attributes_associations(conn, b_at_id, trans_entity_id)
+
+                # Insert the R data as attributes
+                r_at_id = functions_schema_ingest.insert_attributes(
+                                    conn,
+                                    'transmission_lines',
+                                    "Resistance",
+                                    row['R'])
+                
+                # Insert relationship between r and attribute_association
+                functions_schema_ingest.insert_attributes_associations(conn, r_at_id, trans_entity_id)
 
 
 def insert_loads_RTS(conn, directory_structure):

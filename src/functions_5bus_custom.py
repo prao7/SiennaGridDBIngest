@@ -30,13 +30,28 @@ def insert_buses_5bus(conn, directory_structure):
 
     for _, row in bus_data_df.iterrows():
         # Insert the data into the database
-        functions_schema_ingest.insert_balancing_topologies(
+        bus_id = functions_schema_ingest.insert_balancing_topologies(
                             conn,
                             row['Bus ID'],
                             row['Bus Name'],
                             f"Region {row['Area']}",  # using the same format as planning regions
                             row['Bus Type']
                         )
+        
+        # Insert the participation factor as an attribute
+        if bus_id is not None:
+            # Get the entity ID for the bus
+            bus_entity_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', bus_id)
+
+            # Insert the participation factor as an attribute
+            participation_factor_at_id = functions_schema_ingest.insert_attributes(
+                                            conn,
+                                            'balancing_topologies',
+                                            "Participation Factor",
+                                            row['Participation Factor'])
+            
+            # Insert relationship between participation factor and attribute_association
+            functions_schema_ingest.insert_attributes_associations(conn, participation_factor_at_id, bus_entity_id)
 
 
 def insert_regions_5bus(conn, directory_structure):

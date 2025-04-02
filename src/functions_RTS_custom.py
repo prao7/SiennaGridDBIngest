@@ -51,6 +51,16 @@ def insert_buses_RTS(conn, directory_structure):
         # Insert the association into the supplemental_attributes_association table
         functions_schema_ingest.insert_supplemental_attributes_association(conn, sup_at_id, bus_entity_id)
 
+        # Insert the participation factor as an attribute
+        participation_factor_at_id = functions_schema_ingest.insert_attributes(
+                                            conn,
+                                            'balancing_topologies',
+                                            "Participation Factor",
+                                            row['Participation Factor'])
+        
+        # Insert relationship between participation factor and attribute_association
+        functions_schema_ingest.insert_attributes_associations(conn, participation_factor_at_id, bus_entity_id)            
+
 
 
 def insert_regions_RTS(conn, directory_structure):

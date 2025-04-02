@@ -375,3 +375,20 @@ def get_transmission_id_from_arc_id(conn, arc_id):
         return result[0]
     else:
         return None
+    
+
+def get_bus_from_name(conn, bus_name):
+    """
+    Fetches the bus ID from the database using bus name.
+    """
+    sql = """
+    SELECT id FROM balancing_topologies WHERE name = ?
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (bus_name,))
+    result = cur.fetchone()
+    
+    if result:
+        return result[0]
+    else:
+        return None

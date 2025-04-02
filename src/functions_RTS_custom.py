@@ -40,7 +40,6 @@ def insert_buses_RTS(conn, directory_structure):
                             row['Bus_ID'],
                             row['Bus_Name'],
                             f"Region {row['Area']}",  # using the same format as planning regions
-                            row['Participation Factor'],
                             row['Bus_Type']
                         )
         
@@ -70,9 +69,113 @@ def insert_regions_RTS(conn, directory_structure):
         functions_schema_ingest.insert_planning_regions(conn, int(region), f"Region {region}")
 
 
-def insert_interchanges_RTS(conn, directory_structure):
-    pass
+def process_interchange_data_RTS(branch_df, bus_df):
+    """
+    Process the interchange data and return a DataFrame.
+    """
+    # Get the bus area mapping
+    bus_area_mapping = dict(zip(bus_df['Bus_ID'], bus_df['Area']))
 
+    # Define a list to hold rows with buses in different areas
+    filtered_rows = []
+
+    # Iterate through the rows in branch_df
+    for index, row in branch_df.iterrows():
+        bus_1 = row['From Bus']
+        bus_2 = row['To Bus']
+        
+        # Check if the buses belong to different areas
+        if bus_area_mapping[bus_1] != bus_area_mapping[bus_2]:
+            # Append the row to the list
+            filtered_rows.append(row)
+
+    # Create a new DataFrame from the filtered rows
+    filtered_branch_df = pd.DataFrame(filtered_rows, columns=branch_df.columns)
+
+    # Reset the index of the new DataFrame
+    filtered_branch_df.reset_index(drop=True, inplace=True)
+
+    # Map the area to the filtered_branch_df
+    filtered_branch_df['From Area'] = filtered_branch_df['From Bus'].map(bus_area_mapping)
+    filtered_branch_df['To Area'] = filtered_branch_df['To Bus'].map(bus_area_mapping)
+
+    # Group by 'From Area' and 'To Area' and sum the 'Cont Rating'
+    grouped_df = filtered_branch_df.groupby(['From Area', 'To Area'])['Cont Rating'].sum().reset_index()
+
+    # Rename the column for clarity
+    grouped_df.rename(columns={'Cont Rating': 'Total Cont Rating'}, inplace=True)
+
+    # Reset the index of grouped_df so that the index becomes a column
+    grouped_df = grouped_df.reset_index(drop=False)
+
+    # Create a new column named 'group_index' holding the new index
+    grouped_df['group_index'] = grouped_df.index
+
+    # Merge the group index into filtered_branch_df based on the 'From Area' and 'To Area' columns
+    filtered_branch_df = filtered_branch_df.merge(
+        grouped_df[['From Area', 'To Area', 'group_index']],
+        on=['From Area', 'To Area'],
+        how='left'
+    )
+
+    return grouped_df, filtered_branch_df
+
+
+def get_transmission_line_RTS(conn, from_bus_id, to_bus_id):
+    """
+    Get the transmission line ID between two buses.
+    """
+    # Get the entity id for the buses
+    from_bus_entity_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', from_bus_id)
+    to_bus_entity_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', to_bus_id)
+
+    # Get the arc ID
+    arc_id = functions_schema_ingest.get_arc_id(conn, from_bus_entity_id, to_bus_entity_id)
+
+    # Get the transmission line ID
+    transmission_line_id = functions_schema_ingest.get_transmission_id_from_arc_id(conn, arc_id)
+
+    return transmission_line_id
+
+
+def insert_interchanges_RTS(conn, directory_structure):
+    """
+    Insert the interchanges data into the database.
+    """
+    # We have to process the interchanges data from the branch.csv file
+    # Get the branch data from the directory structure
+    branch_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'branch.csv'))
+
+    # Get the bus data from the directory structure
+    bus_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'bus_mod_updatedwithBA.csv'))
+
+    # Process the interchange data
+    interchange_df, _ = process_interchange_data_RTS(branch_data_df, bus_data_df)
+
+    # Add the unique interchange data to the database
+    for _, row in interchange_df.iterrows():
+        # Create the arc relationship between each planning region
+        from_region_id = functions_schema_ingest.get_entity_id(conn, 'planning_regions', int(row['From Area']))
+        to_region_id = functions_schema_ingest.get_entity_id(conn, 'planning_regions', int(row['To Area']))
+
+        # Add the arcs to the database
+        if from_region_id is not None and to_region_id is not None:
+            arcs_id = functions_schema_ingest.insert_arcs(
+                            conn,
+                            from_region_id,
+                            to_region_id)
+            
+            # Then, insert the transmission interchange
+            if arcs_id is not None:
+                # Insert the data into the database
+                functions_schema_ingest.insert_transmission_interchange(
+                                conn,
+                                arcs_id,
+                                f"{row['From Area']}_{row['To Area']}",
+                                float(row['Total Cont Rating']),
+                                float(row['Total Cont Rating'])
+                            )
+                
 
 def insert_branches_RTS(conn, directory_structure):
     """
@@ -158,6 +261,7 @@ def process_and_ingest_RTS_data(conn, directory_structure):
 
     # Second, insert the branches
     insert_branches_RTS(conn, directory_structure)
+    insert_interchanges_RTS(conn, directory_structure)
 
     # Third, insert the generation data
     insert_generation_RTS(conn, directory_structure)

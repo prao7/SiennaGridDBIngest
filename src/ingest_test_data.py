@@ -6,19 +6,13 @@ import functions_handlers as functions_handlers
 import functions_5bus_custom as functions_5bus_custom
 
 
-def ingest_RTS(db_path, RTS_path, schema_path):
+def ingest_RTS(db_path, RTS_path, sql_paths):
     """
     Ingests the RTS data into the database.
     """
 
     # Connect to the database
-    conn = functions_handlers.create_db(db_path)
-
-    # Clear the database
-    functions_handlers.clear_database(conn)
-
-    # Apply the schema to the database
-    functions_handlers.apply_schema(conn, schema_path)
+    conn = functions_handlers.add_sql_files_to_database(db_path, sql_paths)
 
     # Get the structure associated with the RTS data
     RTS_structure = functions_handlers.get_directory_structure(RTS_path)
@@ -27,20 +21,16 @@ def ingest_RTS(db_path, RTS_path, schema_path):
     functions_RTS_custom.process_and_ingest_RTS_data(conn, RTS_structure)
 
     # Close the connection
-    conn.close()
+    functions_handlers.close_connection(conn)
 
-def ingest_5bus(db_path, five_bus_path, schema_path):
+
+def ingest_5bus(db_path, five_bus_path, sql_paths):
     """
     Ingests the 5 bus data into the database.
     """
+
     # Connect to the database
-    conn = functions_handlers.create_db(db_path)
-
-    # Clear the database
-    functions_handlers.clear_database(conn)
-
-    # Apply the schema to the database
-    functions_handlers.apply_schema(conn, schema_path)
+    conn = functions_handlers.add_sql_files_to_database(db_path, sql_paths)
 
     five_bus_structure = functions_handlers.get_directory_structure(five_bus_path)
 
@@ -48,7 +38,7 @@ def ingest_5bus(db_path, five_bus_path, schema_path):
     functions_5bus_custom.ingest_5bus_data(conn, five_bus_structure)
     
     # Close the connection
-    conn.close()
+    functions_handlers.close_connection(conn)
 
 
 def main():
@@ -60,9 +50,12 @@ def main():
     RTS_directory_path = '/Users/prao/GitHub_Repos/data_interoperability/PowerSystemsInvestmentsPortfoliosTestData/RTS_inputs'
     five_bus_directory_path = '/Users/prao/GitHub_Repos/data_interoperability/PowerSystemsTestData/5-Bus'
     schema_path = '/Users/prao/GitHub_Repos/data_interoperability/SiennaGridDB/schema.sql'
+    sql_paths = ["/Users/prao/GitHub_Repos/data_interoperability/SiennaGridDB/schema.sql", 
+                 "/Users/prao/GitHub_Repos/data_interoperability/SiennaGridDB/triggers.sql", 
+                 "/Users/prao/GitHub_Repos/data_interoperability/SiennaGridDB/views.sql"]
     
-    ingest_RTS(RTS_db_path, RTS_directory_path, schema_path)
-    ingest_5bus(five_bus_db_path, five_bus_directory_path, schema_path)
+    ingest_RTS(RTS_db_path, RTS_directory_path, sql_paths)
+    ingest_5bus(five_bus_db_path, five_bus_directory_path, sql_paths)
 
 
 if __name__ == '__main__':

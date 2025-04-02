@@ -46,17 +46,17 @@ def insert_planning_regions(conn, id, name, description=None):
     return cur.lastrowid
 
 
-def insert_balancing_topologies(conn, bus_id, name, area=None, participation_factor=1.0, description=None):
+def insert_balancing_topologies(conn, bus_id, name, area=None, description=None):
     """
     Inserts a row into the balancing_topologies table.
     """
 
     sql = """
-    INSERT INTO balancing_topologies (id, name, area, participation_factor, description)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO balancing_topologies (id, name, area, description)
+    VALUES (?, ?, ?, ?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (bus_id, name, area, participation_factor, description))
+    cur.execute(sql, (bus_id, name, area, description))
     conn.commit()
     return cur.lastrowid
 
@@ -97,11 +97,25 @@ def insert_transmission_interchange(conn, arc_id, max_flow_from, max_flow_to):
     """
 
     sql = """
-    INSERT INTO transmission_interchange (arc_id, max_flow_from, max_flow_to)
+    INSERT INTO transmission_interchanges (arc_id, max_flow_from, max_flow_to)
     VALUES (?, ?, ?)
     """
     cur = conn.cursor()
     cur.execute(sql, (arc_id, max_flow_from, max_flow_to))
+    conn.commit()
+    return cur.lastrowid
+
+
+def insert_transmission_interchange(conn, arc_id, name, max_flow_from, max_flow_to):
+    """
+    Inserts a row into the transmission_interchanges table.
+    """
+    sql = """
+    INSERT INTO transmission_interchanges (arc_id, name, max_flow_from, max_flow_to)
+    VALUES (?, ?, ?, ?)
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (arc_id, name, max_flow_from, max_flow_to))
     conn.commit()
     return cur.lastrowid
 
@@ -320,6 +334,41 @@ def get_entity_id(conn, entity_type, entity_id):
     """
     cur = conn.cursor()
     cur.execute(sql, (entity_type, entity_id))
+    result = cur.fetchone()
+
+    if result:
+        return result[0]
+    else:
+        return None
+    
+def get_arc_id(conn, from_to, to_from):
+    """
+    Fetches the arc ID from the database.
+    """
+
+    sql = """
+    SELECT id FROM arcs WHERE from_to = ? AND to_from = ?
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (from_to, to_from))
+    result = cur.fetchone()
+
+    if result:
+        return result[0]
+    else:
+        return None
+
+
+def get_transmission_id_from_arc_id(conn, arc_id):
+    """
+    Fetches the transmission ID from the database using arc ID.
+    """
+
+    sql = """
+    SELECT id FROM transmission_lines WHERE arc_id = ?
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (arc_id,))
     result = cur.fetchone()
 
     if result:

@@ -125,3 +125,44 @@ def create_db(db_path):
     if directory and not os.path.exists(directory):
         os.makedirs(directory, exist_ok=True)
     return sqlite3.connect(db_path)
+
+
+def add_sql_files_to_database(db_path, sql_file_paths):
+    """
+    Connects to the database specified by db_path, clearing any existing database
+    and then executing each SQL script in the list sql_file_paths to set up
+    the schema, triggers, and views.
+
+    Args:
+        db_path (str): Path to the SQLite database file.
+        sql_file_paths (list of str): List of paths to SQL script files.
+    """
+    # Remove existing database file if it exists
+    if os.path.exists(db_path):
+        os.remove(db_path)
+        print(f"Existing database '{db_path}' removed.")
+
+    # Connect to the database (this creates a new file)
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    
+    # Iterate over each SQL file and execute its content
+    for file_path in sql_file_paths:
+        with open(file_path, 'r') as file:
+            sql_script = file.read()
+            cursor.executescript(sql_script)
+            print(f"Executed {file_path} successfully.")
+    
+    connection.commit()
+    return connection
+
+
+def close_connection(conn):
+    """
+    Close the SQLite database connection.
+    
+    Args:
+        conn (sqlite3.Connection): The SQLite database connection to close.
+    """
+    conn.close()
+    print("Database connection closed.")

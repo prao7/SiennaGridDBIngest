@@ -249,8 +249,188 @@ def insert_generation_5bus(conn, directory_structure):
     pass
 
 
+
+def convert_to_timestamp_5bus(df, datetime_col):
+    """
+    Convert the year, month, day and period columns to a timestamp and insert it 
+    as the first column of the DataFrame.
+    
+    Args:
+    df (pd.DataFrame): The input DataFrame.
+    datetime_col (str): Column name for the date/time.
+    
+    Returns:
+        pd.DataFrame: The DataFrame with the datetime column converted to Python datetime objects.
+    """
+
+    # First ensure the column is in a pandas datetime (Timestamp) format
+    df[datetime_col] = pd.to_datetime(df[datetime_col])
+
+    # Convert each pandas Timestamp to a Python datetime using to_pydatetime()
+    df[datetime_col] = df[datetime_col].apply(lambda x: x.to_pydatetime())
+
+    return df
+
+
+def extract_loads_5bus(df):
+    """
+    Given a DataFrame, return a new DataFrame containing all columns after the 'Period' column.
+    
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+    
+    Returns:
+        pd.DataFrame: A DataFrame with the columns after 'Period'.
+    """
+    # Get the index of the "Period" column
+    period_index = df.columns.get_loc('values')
+    # Return all columns after the "Period" column
+    return df.iloc[:, period_index + 1:]
+    
+
+def insert_day_ahead_loads_5bus(conn, da_load_data_df):
+    """
+    Insert the day ahead load data into the database.
+    """
+    # Convert the year, month, day and period columns to a timestamp
+    da_load_data_df = convert_to_timestamp_5bus(da_load_data_df, 'DateTime')
+    
+    # Extract the load data
+    da_load_data_only_df = extract_loads_5bus(da_load_data_df)
+
+    # Convert the initial timestamp to an ISO-formatted string
+    initial_ts = da_load_data_df['DateTime'].iloc[0]
+    if isinstance(initial_ts, pd.Timestamp):
+        initial_ts = initial_ts.isoformat()
+    
+    # Calculate the length (cast to int if needed)
+    length_val = int((da_load_data_df['DateTime'].max() - da_load_data_df['DateTime'].min()).total_seconds() / 3600)
+
+    for col in da_load_data_only_df.columns:
+        # Now call insert_time_series supplying all needed parameters
+        da_time_series_id = functions_schema_ingest.insert_time_series(
+            conn,
+            'deterministic_forecast_time_series',           # time_series_type
+            'DA Load',                                      # name
+            initial_ts,                                     # initial_timestamp as a string
+            3600,                                           # resolution_ms
+            1,                                              # horizon
+            1,                                              # interval
+            length_val,                                     # length
+            None,                                           # uuid (or provide a string if needed)
+            '{"unit": "MW"}',                               # features
+            None                                            # metadata (or provide JSON if needed)
+        )
+
+        # Get the entity ID for the region from the column header
+        bus_id = functions_schema_ingest.get_bus_from_name(conn, col)
+
+        if bus_id is None:
+            raise ValueError(f"Bus ID for {col} not found in the database.")
+        
+        # Get the region ID from the bus ID
+        region_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', bus_id)
+
+        # Insert into time series associations
+        functions_schema_ingest.insert_time_series_associations(conn, da_time_series_id, region_id)
+
+        # Insert the data into the static time series
+        for i, value in enumerate(da_load_data_only_df[col]):
+            # Current timestamp is
+            current_ts = da_load_data_df['DateTime'].iloc[i]
+
+            # Convert the timestamp to an ISO-formatted string
+            if isinstance(current_ts, pd.Timestamp):
+                current_ts = current_ts.isoformat()
+            
+            # Insert the data into the database
+            functions_schema_ingest.insert_deterministic_time_series(
+                conn,
+                da_time_series_id,
+                current_ts,
+                float(value)
+            )
+
+
+def insert_real_time_loads_5bus(conn, rt_load_data_df):
+    """
+    Insert the real time load data into the database.
+    """
+
+    # Convert the year, month, day and period columns to a timestamp
+    rt_load_data_df = convert_to_timestamp_5bus(rt_load_data_df, 'DateTime')
+
+    # Extract the load data
+    rt_load_data_only_df = extract_loads_5bus(rt_load_data_df)
+
+    # Convert the initial timestamp to an ISO-formatted string
+    initial_ts = rt_load_data_df['DateTime'].iloc[0]
+    if isinstance(initial_ts, pd.Timestamp):
+        initial_ts = initial_ts.isoformat()
+    
+    # Calculate the length (cast to int if needed)
+    length_val = len(rt_load_data_df["DateTime"])
+
+    for col in rt_load_data_only_df.columns:
+        rt_time_series_id = functions_schema_ingest.insert_time_series(
+            conn,
+            'static_time_series',         # time_series_type
+            'RT Load',                    # name
+            initial_ts,                   # initial_timestamp as a string
+            300,                          # resolution_ms
+            1,                            # horizon
+            1,                            # interval
+            length_val,                   # length
+            None,                         # uuid (or provide a string if needed)
+            '{"unit": "MW"}',             # features
+            None                          # metadata (or provide JSON if needed)
+        )
+
+        # Get the entity ID for the region from the column header
+        bus_id = functions_schema_ingest.get_bus_from_name(conn, col)
+
+        if bus_id is None:
+            raise ValueError(f"Bus ID for {col} not found in the database.")
+        
+        # Get the region ID from the bus ID
+        region_id = functions_schema_ingest.get_entity_id(conn, 'balancing_topologies', bus_id)
+
+        # Insert into time series associations
+        functions_schema_ingest.insert_time_series_associations(conn, rt_time_series_id, region_id)
+
+        # Insert the data into the static time series
+        for i, value in enumerate(rt_load_data_only_df[col]):
+            # Current timestamp is
+            current_ts = rt_load_data_df['DateTime'].iloc[i]
+
+            # Convert the timestamp to an ISO-formatted string
+            if isinstance(current_ts, pd.Timestamp):
+                current_ts = current_ts.isoformat()
+            
+            # Insert the data into the database
+            functions_schema_ingest.insert_static_time_series(
+                conn,
+                rt_time_series_id,
+                current_ts,
+                float(value)
+            )
+    
+
 def insert_loads_5bus(conn, directory_structure):
-    pass
+    """
+    Insert the load data into the database.
+    """
+    # Get the DA load data from the directory structure
+    da_load_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'da_load.csv'))
+
+    # Get the RT load data from the directory structure
+    rt_load_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'rt_load.csv'))
+
+    # Insert the DA load data into the database
+    insert_day_ahead_loads_5bus(conn, da_load_data_df)
+
+    # Insert the RT load data into the database
+    insert_real_time_loads_5bus(conn, rt_load_data_df)
 
 
 def insert_investment_options_5bus(conn, directory_structure):

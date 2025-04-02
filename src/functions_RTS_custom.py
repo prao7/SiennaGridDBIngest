@@ -252,8 +252,178 @@ def insert_branches_RTS(conn, directory_structure):
                 functions_schema_ingest.insert_attributes_associations(conn, r_at_id, trans_entity_id)
 
 
+def convert_to_timestamp_RTS(df, year_col, month_col, day_col, period_col, resolution_minutes=60):
+    """
+    Convert the year, month, day and period columns to a timestamp and insert it 
+    as the first column of the DataFrame.
+    
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        year_col (str): Column name for the year.
+        month_col (str): Column name for the month.
+        day_col (str): Column name for the day.
+        period_col (str): Column name for the period.
+        resolution_minutes (int): The resolution in minutes. Default is 60 (hourly).
+                                   For 5 minute resolution, set resolution_minutes=5.
+    
+    Returns:
+        pd.DataFrame: The DataFrame with a new 'Timestamp' column inserted at index 0.
+    """
+    # Multiply the period offset by the resolution (in minutes)
+    ts = pd.to_datetime(df[[year_col, month_col, day_col]]) + pd.to_timedelta((df[period_col] - 1) * resolution_minutes, unit='m')
+    df.insert(0, 'Timestamp', ts)
+    return df
+
+
+def extract_loads_RTS(df):
+    """
+    Given a DataFrame, return a new DataFrame containing all columns after the 'Period' column.
+    
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+    
+    Returns:
+        pd.DataFrame: A DataFrame with the columns after 'Period'.
+    """
+    # Get the index of the "Period" column
+    period_index = df.columns.get_loc('Period')
+    # Return all columns after the "Period" column
+    return df.iloc[:, period_index + 1:]
+    
+
+def insert_day_ahead_loads_RTS(conn, da_load_data_df):
+    """
+    Insert the day ahead load data into the database.
+    """
+    # Convert the year, month, day and period columns to a timestamp
+    da_load_data_df = convert_to_timestamp_RTS(da_load_data_df, 'Year', 'Month', 'Day', 'Period')
+    
+    # Extract the load data
+    da_load_data_only_df = extract_loads_RTS(da_load_data_df)
+
+    # Convert the initial timestamp to an ISO-formatted string
+    initial_ts = da_load_data_df['Timestamp'].iloc[0]
+    if isinstance(initial_ts, pd.Timestamp):
+        initial_ts = initial_ts.isoformat()
+    
+    # Calculate the length (cast to int if needed)
+    length_val = int((da_load_data_df['Timestamp'].max() - da_load_data_df['Timestamp'].min()).total_seconds() / 3600)
+
+    for col in da_load_data_only_df.columns:
+        # Now call insert_time_series supplying all needed parameters
+        da_time_series_id = functions_schema_ingest.insert_time_series(
+            conn,
+            'deterministic_forecast_time_series',           # time_series_type
+            'DA Load',                                      # name
+            initial_ts,                                     # initial_timestamp as a string
+            3600,                                           # resolution_ms
+            1,                                              # horizon
+            1,                                              # interval
+            length_val,                                     # length
+            None,                                           # uuid (or provide a string if needed)
+            '{"unit": "MW"}',                               # features
+            None                                            # metadata (or provide JSON if needed)
+        )
+
+        # Get the entity ID for the region from the column header
+        region_id = functions_schema_ingest.get_entity_id(conn, 'planning_regions', int(col))
+
+        # Insert into time series associations
+        functions_schema_ingest.insert_time_series_associations(conn, da_time_series_id, region_id)
+
+        # Insert the data into the static time series
+        for i, value in enumerate(da_load_data_only_df[col]):
+            # Current timestamp is
+            current_ts = da_load_data_df['Timestamp'].iloc[i]
+
+            # Convert the timestamp to an ISO-formatted string
+            if isinstance(current_ts, pd.Timestamp):
+                current_ts = current_ts.isoformat()
+            
+            # Insert the data into the database
+            functions_schema_ingest.insert_deterministic_time_series(
+                conn,
+                da_time_series_id,
+                current_ts,
+                float(value)
+            )
+
+
+def insert_real_time_loads_RTS(conn, rt_load_data_df):
+    """
+    Insert the real time load data into the database.
+    """
+
+    # Convert the year, month, day and period columns to a timestamp
+    rt_load_data_df = convert_to_timestamp_RTS(rt_load_data_df, 'Year', 'Month', 'Day', 'Period', resolution_minutes=5)
+
+    # Extract the load data
+    rt_load_data_only_df = extract_loads_RTS(rt_load_data_df)
+
+    # Convert the initial timestamp to an ISO-formatted string
+    initial_ts = rt_load_data_df['Timestamp'].iloc[0]
+    if isinstance(initial_ts, pd.Timestamp):
+        initial_ts = initial_ts.isoformat()
+    
+    # Calculate the length (cast to int if needed)
+    length_val = len(rt_load_data_df["Period"])
+
+    for col in rt_load_data_only_df.columns:
+        rt_time_series_id = functions_schema_ingest.insert_time_series(
+            conn,
+            'static_time_series',         # time_series_type
+            'RT Load',                    # name
+            initial_ts,                   # initial_timestamp as a string
+            300,                          # resolution_ms
+            1,                            # horizon
+            1,                            # interval
+            length_val,                   # length
+            None,                         # uuid (or provide a string if needed)
+            '{"unit": "MW"}',             # features
+            None                          # metadata (or provide JSON if needed)
+        )
+
+        # Get the entity ID for the region from the column header
+        region_id = functions_schema_ingest.get_entity_id(conn, 'planning_regions', int(col))
+
+        # Insert into time series associations
+        functions_schema_ingest.insert_time_series_associations(conn, rt_time_series_id, region_id)
+
+        # Insert the data into the static time series
+        for i, value in enumerate(rt_load_data_only_df[col]):
+            # Current timestamp is
+            current_ts = rt_load_data_df['Timestamp'].iloc[i]
+
+            # Convert the timestamp to an ISO-formatted string
+            if isinstance(current_ts, pd.Timestamp):
+                current_ts = current_ts.isoformat()
+            
+            # Insert the data into the database
+            functions_schema_ingest.insert_static_time_series(
+                conn,
+                rt_time_series_id,
+                current_ts,
+                float(value)
+            )
+    
+
 def insert_loads_RTS(conn, directory_structure):
-    pass
+    """
+    Insert the load data into the database.
+    """
+
+    # Get the DA load data from the directory structure
+    da_load_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_regional_Load.csv'))
+
+    # Get the RT load data from the directory structure
+    rt_load_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_regional_Load.csv'))
+
+    # Add the day ahead loads to the database
+    insert_day_ahead_loads_RTS(conn, da_load_data_df)
+
+    # Add the real time loads to the database
+    insert_real_time_loads_RTS(conn, rt_load_data_df)
+
 
 
 def insert_investment_options_RTS(conn, directory_structure):

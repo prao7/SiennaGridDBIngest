@@ -301,7 +301,7 @@ def insert_deterministic_time_series(conn, time_series_id, timestamp, value, uui
     """
 
     sql = """
-    INSERT INTO deterministic_time_series (time_series_id, uuid, timestamp, value)
+    INSERT INTO deterministic_forecast_time_series (time_series_id, uuid, timestamp, value)
     VALUES (?, ?, ?, ?)
     """
     cur = conn.cursor()
@@ -315,7 +315,7 @@ def insert_probabilistic_time_series(conn, time_series_id, timestamp, value, uui
     Inserts a row into the probabilistic_time_series table.
     """
     sql = """
-    INSERT INTO probabilistic_time_series (time_series_id, uuid, timestamp, value)
+    INSERT INTO probabilistic_forecast_time_series (time_series_id, uuid, timestamp, value)
     VALUES (?, ?, ?, ?)
     """
     cur = conn.cursor()

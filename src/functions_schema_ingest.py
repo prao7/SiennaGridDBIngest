@@ -16,21 +16,6 @@ def insert_entities(conn, entity_type, entity_id):
     return cur.lastrowid
 
 
-def insert_prime_movers(conn, prime_mover, fuel=None, description=None):
-    """
-    Inserts a row into the prime_movers table.
-    """
-
-    sql = """
-    INSERT INTO prime_movers (prime_mover, fuel, description)
-    VALUES (?, ?, ?)
-    """
-    cur = conn.cursor()
-    cur.execute(sql, (prime_mover, fuel, description))
-    conn.commit()
-    return cur.lastrowid
-
-
 def insert_planning_regions(conn, id, name, description=None):
     """
     Inserts a row into the planning_regions table.
@@ -120,18 +105,29 @@ def insert_transmission_interchange(conn, arc_id, name, max_flow_from, max_flow_
     return cur.lastrowid
 
 
-def insert_generation_units(conn, name, prime_mover, balancing_topology, start_year, base_power, fuel=None, rating=1.0):
+def insert_generation_units(conn, name, prime_mover, balancing_topology, base_power, fuel=None, rating=1.0):
     """
-    Inserts a row into the generation_units table.
+    Inserts a row into the generation_units table based on the new design.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        name (str): The unique name of the generation unit.
+        prime_mover (str): The prime mover type (must match an entry in prime_mover_types).
+        balancing_topology (str): The balancing topology (must match an entry in balancing_topologies).
+        base_power (float): The base power of the unit (must be > 0 and >= rating).
+        fuel (str, optional): The fuel type (must match an entry in fuels, if provided).
+        rating (float, optional): The rating of the unit (> 0). Defaults to 1.0.
+        
+    Returns:
+        int: The ID of the newly inserted generation unit.
     """
-
     sql = """
     INSERT INTO generation_units 
-      (name, prime_mover, fuel, balancing_topology, start_year, rating, base_power)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+      (name, prime_mover, fuel, balancing_topology, rating, base_power)
+    VALUES (?, ?, ?, ?, ?, ?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (name, prime_mover, fuel, balancing_topology, start_year, rating, base_power))
+    cur.execute(sql, (name, prime_mover, fuel, balancing_topology, rating, base_power))
     conn.commit()
     return cur.lastrowid
 
@@ -170,21 +166,82 @@ def insert_supply_technologies(conn, prime_mover, vom_cost, fom_cost, fuel=None,
     return cur.lastrowid
 
 
-def insert_operational_data(conn, entity_id, fom_cost, vom_cost, startup_cost, min_stable_level,
-                            mttr, startup_fuel_mmbtu_per_mw, uptime, downtime, operational_cost=None):
+def insert_operational_data(conn, entity_id, active_power_limit_min, must_run, uptime, downtime, ramp_up, ramp_down, operational_cost=None):
     """
     Inserts a row into the operational_data table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        entity_id (int): The ID of the associated entity.
+        active_power_limit_min (float): The minimum active power limit (>= 0).
+        must_run (bool): Flag indicating if the unit must run.
+        uptime (float): Uptime value (>= 0).
+        downtime (float): Downtime value (>= 0).
+        ramp_up (float): The ramp-up rate.
+        ramp_down (float): The ramp-down rate.
+        operational_cost (str or None): Optional JSON string representing the operational cost details.
+    
+    Returns:
+        int: The ID of the newly inserted operational_data row.
     """
-
     sql = """
     INSERT INTO operational_data 
-      (entity_id, fom_cost, vom_cost, startup_cost, min_stable_level, mttr, startup_fuel_mmbtu_per_mw, uptime, downtime, operational_cost)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (entity_id, active_power_limit_min, must_run, uptime, downtime, ramp_up, ramp_down, operational_cost)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (entity_id, fom_cost, vom_cost, startup_cost, min_stable_level,
-                      mttr, startup_fuel_mmbtu_per_mw, uptime, downtime, operational_cost))
+    cur.execute(sql, (entity_id, active_power_limit_min, must_run, uptime, downtime, ramp_up, ramp_down, operational_cost))
     conn.commit()
+    return cur.lastrowid
+
+
+def insert_prime_mover_type(conn, name, description=None):
+    """
+    Inserts a row into the prime_mover_types table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        name (str): The prime mover type (e.g., 'CT').
+        description (str): Description of the prime mover type.
+        
+    Returns:
+        int: The ID of the newly inserted row.
+    """
+    
+    sql = """
+    INSERT INTO prime_mover_types (name, description)
+    VALUES (?, ?)
+    """
+    
+    cur = conn.cursor()
+    cur.execute(sql, (name, description))
+    conn.commit()
+    
+    return cur.lastrowid
+
+
+def insert_fuel(conn, name, description=None):
+    """
+    Inserts a row into the fuels table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        name (str): The fuel name (e.g., 'NG').
+        description (str): Description of the fuel.
+        
+    Returns:
+        int: The ID of the newly inserted row.
+    """
+    
+    sql = """
+    INSERT INTO fuels (name, description)
+    VALUES (?, ?)
+    """
+    
+    cur = conn.cursor()
+    cur.execute(sql, (name, description))
+    conn.commit()
+    
     return cur.lastrowid
 
 
@@ -386,6 +443,23 @@ def get_bus_from_name(conn, bus_name):
     """
     cur = conn.cursor()
     cur.execute(sql, (bus_name,))
+    result = cur.fetchone()
+    
+    if result:
+        return result[0]
+    else:
+        return None
+
+
+def get_bus_name_from_id(conn, bus_id):
+    """
+    Fetches the bus name from the database using bus ID.
+    """
+    sql = """
+    SELECT name FROM balancing_topologies WHERE id = ?
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (bus_id,))
     result = cur.fetchone()
     
     if result:

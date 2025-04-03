@@ -8,11 +8,6 @@ import functions_handlers as functions_handlers
 import functions_schema_ingest as functions_schema_ingest
 
 
-def insert_generation_RTS(conn, directory_structure):
-    # Put the capacity data in a dataframe
-    capacity_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'gen.csv'))
-
-
 def get_participation_factor_RTS(bus_df):
     area_load_sum = bus_df.groupby('Area')['MW_Load'].sum()
 
@@ -424,6 +419,345 @@ def insert_loads_RTS(conn, directory_structure):
     # Add the real time loads to the database
     insert_real_time_loads_RTS(conn, rt_load_data_df)
 
+def get_fom(fuel):
+    """
+    Get the fixed O&M cost for the given fuel type.
+    Values taken from ATB data, ATB Advanced
+    """
+    fom_dict = {
+        "Hydro": 92.0,
+        "Solar": 16.639,
+        "Wind": 26.314,
+        "Nuclear": 126.0,
+        "NG": 38.0,
+        "Coal": 123.3,
+        "Storage": 0.0,
+        "Oil": 25.0,
+    }
+    # Return the fixed O&M cost based on the fuel type
+    return fom_dict.get(fuel, 0.0)
+
+def get_vom(fuel):
+    """
+    Get the variable O&M cost for the given fuel type.
+    Values taken from ATB data, ATB Advanced
+    """
+    vom_dict = {
+        "Hydro": 0.0,
+        "Solar": 0.0,
+        "Wind": 0.0,
+        "Nuclear": 1.9,
+        "NG": 2.08,
+        "Coal": 14.2,
+        "Storage": 0.0,
+        "Oil": 6.94,
+    }
+    # Return the variable O&M cost based on the fuel type
+    return vom_dict.get(fuel, 0.0)
+
+
+def insert_fuels_RTS(conn, capacity_df):
+    """
+    Insert the fuel data into the database.
+    """
+
+    # Get the unique fuels
+    fuels = capacity_df['Fuel'].unique()
+
+    # Insert the fuels into the database
+    for fuel in fuels:
+        # Insert the data into the database
+        functions_schema_ingest.insert_fuel(conn, fuel)
+
+
+def get_prime_mover(prime_mover):
+    """
+    This method is hard coded so far. We need to figure out better enforcements on what is allowed
+    and an easier transition to Sienna PrimeMovers
+    """
+    # Create a dictionary mapping the Unit Type to the Prime Mover
+    prime_mover_mapping = {
+        'PV': 'PrimeMovers.PVe',
+        'STEAM': 'PrimeMovers.ST',
+        'CT': 'PrimeMovers.CT',
+        'CC': 'PrimeMovers.CC',
+        'RTPV': 'PrimeMovers.PVe',
+        'ROR': 'PrimeMovers.HY',
+        'HYDRO': 'PrimeMovers.HY',
+        'STORAGE': 'PrimeMovers.BA',
+        'NUCLEAR': 'PrimeMovers.ST',
+        'WIND': 'PrimeMovers.WT',
+        'CSP': 'PrimeMovers.PVe',
+    }
+
+    # Return the prime mover based on the mapping
+    return prime_mover_mapping.get(prime_mover, 'PrimeMovers.OT')
+
+
+def insert_prime_mover_RTS(conn, capacity_df):
+    """
+    Insert the prime mover data into the database.
+    """
+
+    # Get the unique prime movers
+    prime_movers = capacity_df['Unit Type'].unique()
+
+    # Create another list with the mapped prime movers
+    prime_mover_mapping = [get_prime_mover(prime_mover) for prime_mover in prime_movers]
+
+    # Remove duplicates
+    prime_movers = list(set(prime_mover_mapping))
+
+    # Insert the prime movers into the database
+    for prime_mover in prime_movers:
+        # Insert the data into the database
+        functions_schema_ingest.insert_prime_mover_type(conn, prime_mover)
+
+
+def get_operational_cost(row):
+    """
+    Create the operational cost string from the data
+    """
+    # Get the operational cost from the row
+    op_cost = {
+        "variable_cost": get_vom(row['Fuel']),
+        "fixed_cost": get_fom(row['Fuel']),
+        "start_up_cost": row['Non Fuel Start Cost $'],
+        "startup_fuel_mmbtu_per_mw": row['Start Heat Warm MBTU'],
+    }
+    # Convert the dictionary to a JSON string.
+    return json.dumps(op_cost)
+
+def get_heat_rate(row):
+    """
+    Create the heat rate string from the data
+    """
+    if row['HeatRate'] is not None and row['Fuel'] != 'Hydro':
+        # Creating a piecewise linear blob
+        piecewise_linear_data = []
+
+
+        piecewise_linear_data.append({
+            'from_x': row['Output_pct_0']*row['cap'],
+            'to_x': row['Output_pct_1']*row['cap'] if pd.notna(row['Output_pct_1']) and pd.notna(row['cap']) else row['cap'],
+            'from_y': row['HeatRate'],
+            'to_y': row['HR_incr_1'] if pd.notna(row['HR_incr_1']) else row['HeatRate']
+        })
+
+        if pd.notna(row['Output_pct_2']) and pd.notna(row['HR_incr_2']):
+            piecewise_linear_data.append({
+                'from_x': row['Output_pct_1']*row['cap'],
+                'to_x': row['Output_pct_2']*row['cap'],
+                'from_y': row['HR_incr_1'],
+                'to_y': row['HR_incr_2']
+            })
+
+        if pd.notna(row['Output_pct_3']) and pd.notna(row['HR_incr_3']):
+            piecewise_linear_data.append({
+                'from_x': row['Output_pct_2']*row['cap'],
+                'to_x': row['Output_pct_3']*row['cap'],
+                'from_y': row['HR_incr_2'],
+                'to_y': row['HR_incr_3']
+            })
+
+        if pd.notna(row['Output_pct_4']) and pd.notna(row['HR_incr_4']):
+            piecewise_linear_data.append({
+                'from_x': row['Output_pct_3']*row['cap'],
+                'to_x': row['Output_pct_4']*row['cap'],
+                'from_y': row['HR_incr_3'],
+                'to_y': row['HR_incr_4']
+            })
+
+        return json.dumps(piecewise_linear_data)
+    else:
+        return None
+
+
+def insert_operational_data_RTS(conn, row, must_run, gen_entity_id):
+    """
+    Insert the operational data into the database.
+    """
+
+    # Insert the operational data values for the entity in the database
+    functions_schema_ingest.insert_operational_data(
+        conn,
+        gen_entity_id,
+        row['PMin MW'],
+        must_run,
+        row['Min Up Time Hr'],
+        row['Min Down Time Hr'],
+        row['Ramp Rate MW/Min'],
+        row['Ramp Rate MW/Min'],
+        get_operational_cost(row)
+    )
+
+
+def insert_generation_units_data_RTS(conn, row):
+    """
+    Insert the generation units data into the database.
+    """
+
+    # Get the generator data from the directory structure
+    gen_id = functions_schema_ingest.insert_generation_units(conn, 
+                                                             row['GEN UID'],
+                                                             get_prime_mover(row['Unit Type']),
+                                                             functions_schema_ingest.get_bus_name_from_id(conn, row['Bus ID']),
+                                                             row['cap'],
+                                                             row['Fuel'],
+                                                             row['cap'] if row['MVAR Inj'] > row['cap'] else (row['MVAR Inj'] if row['MVAR Inj'] > 0 else 0.00000001))
+    
+    # Get and return the entity ID for the generator
+    return functions_schema_ingest.get_entity_id(conn, 'generation_units', gen_id)
+
+
+def insert_hydro_data_RTS(conn, row, directory_structure):
+    """
+    Insert the hydro data into the database.
+    """
+    # Get the DA hydro data from the directory structure
+    da_hydro_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_hydro.csv'))
+
+    # Get the RT hydro data from the directory structure
+    rt_hydro_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_hydro.csv'))
+
+    # Get the entity ID for the generator and insert the generator into the generation_units table
+    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    
+
+def insert_pv_data_RTS(conn, row, directory_structure):
+    """
+    Insert the PV data into the database.
+    """
+    # Get the DA PV data from the directory structure
+    da_pv_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_pv.csv'))
+
+    # Get the RT PV data from the directory structure
+    rt_pv_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_pv.csv'))
+
+    # Get the entity ID for the generator and insert the generator into the generation_units table
+    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+
+def insert_csp_data_RTS(conn, row, directory_structure):
+    """
+    Insert the CSP data into the database.
+    """
+    # Get the DA CSP data from the directory structure
+    da_csp_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_Natural_Inflow.csv'))
+
+    # Get the RT CSP data from the directory structure
+    rt_csp_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_Natural_Inflow.csv'))
+
+    # Get the entity ID for the generator and insert the generator into the generation_units table
+    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+
+def insert_rtpv_data_RTS(conn, row, directory_structure):
+    """
+    Insert the RTPV data into the database.
+    """
+    # Get the DA RTPV data from the directory structure
+    da_rtpv_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_rtpv.csv'))
+
+    # Get the RT RTPV data from the directory structure
+    rt_rtpv_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_rtpv.csv'))
+    
+    # Get the entity ID for the generator and insert the generator into the generation_units table
+    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+
+def insert_wind_data_RTS(conn, row, directory_structure):
+    """
+    Insert the wind data into the database.
+    """
+    # Get the DA wind data from the directory structure
+    da_wind_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_wind.csv'))
+
+    # Get the RT wind data from the directory structure
+    rt_wind_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_wind.csv'))
+
+    # Get the entity ID for the generator and insert the generator into the generation_units table
+    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+
+def insert_thermal_data_RTS(conn, row):
+    """
+    Insert the thermal data into the database.
+    """
+
+    # Get the entity ID for the generator and insert the generator into the generation_units table
+    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+    if row['Fuel'] == 'NG' or row['Fuel'] == 'Oil':
+        # Insert the operational data into the database
+        insert_operational_data_RTS(conn, row, False, gen_entity_id)
+    else:
+        # Insert the operational data into the database
+        insert_operational_data_RTS(conn, row, True, gen_entity_id)
+    
+    # Insert the heat rate as an attribute
+    heat_rate_at_id = functions_schema_ingest.insert_attributes(
+                                            conn,
+                                            'generation_units',
+                                            "Heat Rate",
+                                            get_heat_rate(row))
+    
+    # Insert relationship between heat rate and attribute_association
+    functions_schema_ingest.insert_attributes_associations(conn, heat_rate_at_id, gen_entity_id)
+
+    # Insert the outage rate as an attribute
+    outage_rate_at_id = functions_schema_ingest.insert_attributes(
+                                            conn,
+                                            'generation_units',
+                                            "Outage Rate",
+                                            row['FOR'])
+    
+    # Insert relationship between outage rate and attribute_association
+    functions_schema_ingest.insert_attributes_associations(conn, outage_rate_at_id, gen_entity_id)
+
+    # Insert the mttr as an attribute
+    mttr_at_id = functions_schema_ingest.insert_attributes(
+                                            conn,
+                                            'generation_units',
+                                            "MTTR",
+                                            row['MTTR Hr'])
+    
+    # Insert relationship between mttr and attribute_association
+    functions_schema_ingest.insert_attributes_associations(conn, mttr_at_id, gen_entity_id)
+
+
+def insert_generation_RTS(conn, directory_structure):
+    """
+    Insert the generation data into the database.
+    """
+
+    # Put the capacity data in a dataframe
+    capacity_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'ReEDS_generator_database_final_RTS-GMLC_updated_nodal.csv'))
+
+    # Insert the prime movers into the database
+    insert_prime_mover_RTS(conn, capacity_df)
+
+    # Insert the fuels into the database
+    insert_fuels_RTS(conn, capacity_df)
+
+    for _, row in capacity_df.iterrows():
+        if row["Fuel"] == "Wind" or row["Fuel"] == "Solar" or row["Fuel"] == "Hydro":
+            if row["Fuel"] == "Hydro":
+                insert_hydro_data_RTS(conn, row, directory_structure)
+            elif row["Fuel"] == "Solar":
+                if row["Unit Type"] == "PV":
+                    insert_pv_data_RTS(conn, row, directory_structure)
+                elif row["Unit Type"] == "CSP":
+                    insert_csp_data_RTS(conn, row, directory_structure)
+                elif row["Unit Type"] == "RTPV":
+                    insert_rtpv_data_RTS(conn, row, directory_structure)
+                pass
+            elif row["Fuel"] == "Wind":
+                insert_wind_data_RTS(conn, row, directory_structure)
+        else:
+            # If it's a thermal units, non-VRE then no need for time series.
+            # Insert the thermal data into the database
+            insert_thermal_data_RTS(conn, row)
 
 
 def insert_investment_options_RTS(conn, directory_structure):
@@ -447,7 +781,7 @@ def process_and_ingest_RTS_data(conn, directory_structure):
     insert_generation_RTS(conn, directory_structure)
 
     # Fourth, insert the load data
-    insert_loads_RTS(conn, directory_structure)
+    # insert_loads_RTS(conn, directory_structure)
 
     # Finally, insert the investment options
     insert_investment_options_RTS(conn, directory_structure)

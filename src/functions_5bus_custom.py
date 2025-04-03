@@ -245,11 +245,6 @@ def insert_branches_5bus(conn, directory_structure):
                 functions_schema_ingest.insert_attributes_associations(conn, r_at_id, trans_entity_id)
 
 
-def insert_generation_5bus(conn, directory_structure):
-    pass
-
-
-
 def convert_to_timestamp_5bus(df, datetime_col):
     """
     Convert the year, month, day and period columns to a timestamp and insert it 
@@ -433,6 +428,10 @@ def insert_loads_5bus(conn, directory_structure):
     insert_real_time_loads_5bus(conn, rt_load_data_df)
 
 
+def insert_generation_5bus(conn, directory_structure):
+    pass
+
+
 def insert_investment_options_5bus(conn, directory_structure):
     pass
 
@@ -455,7 +454,7 @@ def ingest_5bus_data(conn, directory_structure):
     insert_generation_5bus(conn, directory_structure)
 
     # Fourth, insert the load data
-    insert_loads_5bus(conn, directory_structure)
+    # insert_loads_5bus(conn, directory_structure)
 
     # Finally, insert the investment options
     insert_investment_options_5bus(conn, directory_structure)

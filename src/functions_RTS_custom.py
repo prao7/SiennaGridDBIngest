@@ -528,6 +528,7 @@ def get_operational_cost(row):
     # Convert the dictionary to a JSON string.
     return json.dumps(op_cost)
 
+
 def get_heat_rate(row):
     """
     Create the heat rate string from the data
@@ -610,6 +611,120 @@ def insert_generation_units_data_RTS(conn, row):
     return functions_schema_ingest.get_entity_id(conn, 'generation_units', gen_id)
 
 
+def insert_day_ahead_generation(conn, da_data_df, entity_id, gen_name):
+    """
+    Insert the day ahead generation data into the database.
+    """
+
+    # Convert the year, month, day and period columns to a timestamp
+    da_data_df = convert_to_timestamp_RTS(da_data_df, 'Year', 'Month', 'Day', 'Period')
+
+    # Extract the generation data
+    da_gen_data_only_df = extract_loads_RTS(da_data_df)[[gen_name]]
+
+    # Convert the initial timestamp to an ISO-formatted string
+    initial_ts = da_data_df['Timestamp'].iloc[0]
+
+    if isinstance(initial_ts, pd.Timestamp):
+        initial_ts = initial_ts.isoformat()
+    
+    # Calculate the length (cast to int if needed)
+    length_val = len(da_data_df["Period"])
+
+    # Now call insert_time_series supplying all needed parameters
+    da_time_series_id = functions_schema_ingest.insert_time_series(
+        conn,
+        'deterministic_forecast_time_series',           # time_series_type
+        'DA Generation',                                # name
+        initial_ts,                                     # initial_timestamp as a string
+        3600,                                           # resolution_ms
+        1,                                              # horizon
+        1,                                              # interval
+        length_val,                                     # length
+        None,                                           # uuid (or provide a string if needed)
+        '{"unit": "MW"}',                               # features
+        None                                            # metadata (or provide JSON if needed)
+    )
+
+        # Insert into time series associations
+    functions_schema_ingest.insert_time_series_associations(conn, da_time_series_id, entity_id)
+
+    # Insert the data into the static time series
+    for i, value in da_gen_data_only_df.iterrows():
+        # Current timestamp is
+        current_ts = da_data_df['Timestamp'].iloc[i]
+
+        # Convert the timestamp to an ISO-formatted string
+        if isinstance(current_ts, pd.Timestamp):
+            current_ts = current_ts.isoformat()
+            
+        # Insert the data into the database
+        functions_schema_ingest.insert_deterministic_time_series(
+            conn,
+            da_time_series_id,
+            current_ts,
+            float(value)
+        )
+        
+
+        
+
+
+def insert_real_time_generation(conn, rt_data_df, entity_id, gen_name):
+    """
+    Insert the real time generation data into the database.
+    """
+
+    # Convert the year, month, day and period columns to a timestamp
+    rt_data_df = convert_to_timestamp_RTS(rt_data_df, 'Year', 'Month', 'Day', 'Period', resolution_minutes=5)
+
+    # Extract the generation data
+    rt_gen_data_only_df = extract_loads_RTS(rt_data_df)[[gen_name]]
+
+    # Convert the initial timestamp to an ISO-formatted string
+    initial_ts = rt_data_df['Timestamp'].iloc[0]
+
+    if isinstance(initial_ts, pd.Timestamp):
+        initial_ts = initial_ts.isoformat()
+    
+    # Calculate the length (cast to int if needed)
+    length_val = len(rt_data_df["Period"])
+
+    rt_time_series_id = functions_schema_ingest.insert_time_series(
+        conn,
+        'static_time_series',         # time_series_type
+        'RT Generation',               # name
+        initial_ts,                   # initial_timestamp as a string
+        300,                          # resolution_ms
+        1,                            # horizon
+        1,                            # interval
+        length_val,                   # length
+        None,                         # uuid (or provide a string if needed)
+        '{"unit": "MW"}',             # features
+        None                          # metadata (or provide JSON if needed)
+    )
+
+    # Insert into time series associations
+    functions_schema_ingest.insert_time_series_associations(conn, rt_time_series_id, entity_id)
+    # Insert the data into the static time series
+    for i, value in rt_gen_data_only_df.iterrows():
+        # Current timestamp is
+        current_ts = rt_data_df['Timestamp'].iloc[i]
+
+        # Convert the timestamp to an ISO-formatted string
+        if isinstance(current_ts, pd.Timestamp):
+            current_ts = current_ts.isoformat()
+            
+            # Insert the data into the database
+            functions_schema_ingest.insert_static_time_series(
+                conn,
+                rt_time_series_id,
+                current_ts,
+                float(value)
+            )
+        
+
+
 def insert_hydro_data_RTS(conn, row, directory_structure):
     """
     Insert the hydro data into the database.
@@ -622,6 +737,12 @@ def insert_hydro_data_RTS(conn, row, directory_structure):
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
     gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+    # Insert the day ahead generation data into the database
+    insert_day_ahead_generation(conn, da_hydro_data_df, gen_entity_id, row['GEN UID'])
+
+    # Insert the real time generation data into the database
+    insert_real_time_generation(conn, rt_hydro_data_df, gen_entity_id, row['GEN UID'])
     
 
 def insert_pv_data_RTS(conn, row, directory_structure):
@@ -637,6 +758,12 @@ def insert_pv_data_RTS(conn, row, directory_structure):
     # Get the entity ID for the generator and insert the generator into the generation_units table
     gen_entity_id = insert_generation_units_data_RTS(conn, row)
 
+    # Insert the day ahead generation data into the database
+    insert_day_ahead_generation(conn, da_pv_data_df, gen_entity_id, row['GEN UID'])
+
+    # Insert the real time generation data into the database
+    insert_real_time_generation(conn, rt_pv_data_df, gen_entity_id, row['GEN UID'])
+
 
 def insert_csp_data_RTS(conn, row, directory_structure):
     """
@@ -650,6 +777,12 @@ def insert_csp_data_RTS(conn, row, directory_structure):
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
     gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+    # Insert the day ahead generation data into the database
+    insert_day_ahead_generation(conn, da_csp_data_df, gen_entity_id, row['GEN UID'])
+
+    # Insert the real time generation data into the database
+    insert_real_time_generation(conn, rt_csp_data_df, gen_entity_id, row['GEN UID'])
 
 
 def insert_rtpv_data_RTS(conn, row, directory_structure):
@@ -665,6 +798,12 @@ def insert_rtpv_data_RTS(conn, row, directory_structure):
     # Get the entity ID for the generator and insert the generator into the generation_units table
     gen_entity_id = insert_generation_units_data_RTS(conn, row)
 
+    # Insert the day ahead generation data into the database
+    insert_day_ahead_generation(conn, da_rtpv_data_df, gen_entity_id, row['GEN UID'])
+
+    # Insert the real time generation data into the database
+    insert_real_time_generation(conn, rt_rtpv_data_df, gen_entity_id, row['GEN UID'])
+
 
 def insert_wind_data_RTS(conn, row, directory_structure):
     """
@@ -678,6 +817,12 @@ def insert_wind_data_RTS(conn, row, directory_structure):
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
     gen_entity_id = insert_generation_units_data_RTS(conn, row)
+
+    # Insert the day ahead generation data into the database
+    insert_day_ahead_generation(conn, da_wind_data_df, gen_entity_id, row['GEN UID'])
+
+    # Insert the real time generation data into the database
+    insert_real_time_generation(conn, rt_wind_data_df, gen_entity_id, row['GEN UID'])
 
 
 def insert_thermal_data_RTS(conn, row):
@@ -724,6 +869,17 @@ def insert_thermal_data_RTS(conn, row):
     
     # Insert relationship between mttr and attribute_association
     functions_schema_ingest.insert_attributes_associations(conn, mttr_at_id, gen_entity_id)
+
+    # Insert CO2 Emissions
+    co2_emissions_at_id = functions_schema_ingest.insert_supplemental_attributes(
+                                            conn,
+                                            "CO2 Emissions",
+                                            row['Emissions CO2 Lbs/MMBTU'])
+    
+    # Insert relationship between CO2 emissions and attribute_association
+    functions_schema_ingest.insert_supplemental_attributes_association(conn, co2_emissions_at_id, gen_entity_id)
+    
+
 
 
 def insert_generation_RTS(conn, directory_structure):

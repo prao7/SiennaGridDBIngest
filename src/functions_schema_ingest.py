@@ -132,36 +132,124 @@ def insert_generation_units(conn, name, prime_mover, balancing_topology, base_po
     return cur.lastrowid
 
 
-def insert_storage_units(conn, name, prime_mover, max_capacity, balancing_topology, start_year, base_power, 
-                           rating=1, charging_efficiency=1.0, discharge_efficiency=1.0):
+def insert_storage_units(conn, name, prime_mover, max_capacity, balancing_topology,
+                         base_power, rating=1, efficiency_up=1.0, efficiency_down=1.0):
     """
     Inserts a row into the storage_units table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        name (str): The unique name of the storage unit.
+        prime_mover (str): The prime mover type (must match an entry in prime_mover_types).
+        max_capacity (float): The energy capacity (> 0).
+        balancing_topology (str): The balancing topology (must match an entry in balancing_topologies).
+        base_power (float): The base power of the storage unit (> 0 and >= rating).
+        rating (float, optional): The rating of the unit (> 0). Defaults to 1.
+        efficiency_up (float, optional): The charging efficiency (0 < value <= 1.0). Defaults to 1.0.
+        efficiency_down (float, optional): The discharging efficiency (0 < value <= 1.0). Defaults to 1.0.
+        
+    Returns:
+        int: The ID of the newly inserted storage unit.
     """
-
     sql = """
-    INSERT INTO storage_units
-      (name, prime_mover, max_capacity, balancing_topology, charging_efficiency, discharge_efficiency, start_year, rating, base_power)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO storage_units 
+      (name, prime_mover, max_capacity, balancing_topology, efficiency_up, efficiency_down, rating, base_power)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (name, prime_mover, max_capacity, balancing_topology, charging_efficiency,
-                      discharge_efficiency, start_year, rating, base_power))
+    cur.execute(sql, (name, prime_mover, max_capacity, balancing_topology, efficiency_up, efficiency_down, rating, base_power))
     conn.commit()
     return cur.lastrowid
 
 
-def insert_supply_technologies(conn, prime_mover, vom_cost, fom_cost, fuel=None, area=None, balancing_topology=None, scenario=None):
+def insert_hydro_reservoir(conn, name):
     """
-    Inserts a row into the supply_technologies table.
+    Inserts a row into the hydro_reservoir table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        name (str): The name of the reservoir.
+        
+    Returns:
+        int: The ID of the newly inserted reservoir.
     """
-
     sql = """
-    INSERT INTO supply_technologies 
-      (prime_mover, fuel, area, balancing_topology, vom_cost, fom_cost, scenario)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO hydro_reservoir (name)
+    VALUES (?)
     """
     cur = conn.cursor()
-    cur.execute(sql, (prime_mover, fuel, area, balancing_topology, vom_cost, fom_cost, scenario))
+    cur.execute(sql, (name,))
+    conn.commit()
+    return cur.lastrowid
+
+
+def insert_hydro_reservoir_connection(conn, turbine_id, reservoir_id):
+    """
+    Inserts a row into the hydro_reservoir_connections table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        turbine_id (int): The id of the generation unit (turbine).
+        reservoir_id (int): The id of the hydro reservoir.
+        
+    Returns:
+        int: The ID of the newly inserted row.
+    """
+    sql = """
+    INSERT INTO hydro_reservoir_connections (turbine_id, reservoir_id)
+    VALUES (?, ?)
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (turbine_id, reservoir_id))
+    conn.commit()
+    return cur.lastrowid
+
+
+
+def insert_supply_technologies(conn, prime_mover, fuel=None, area=None, balancing_topology=None, scenario=None):
+    """
+    Inserts a row into the supply_technologies table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        prime_mover (str): The prime mover type (must match an entry in prime_mover_types).
+        fuel (str, optional): The fuel type (must match an entry in fuels, if provided).
+        area (str, optional): The area (must match an entry in planning_regions, if provided).
+        balancing_topology (str, optional): The balancing topology (must match an entry in balancing_topologies, if provided).
+        scenario (str, optional): The scenario name.
+        
+    Returns:
+        int: The ID of the newly inserted supply_technologies row.
+    """
+    sql = """
+    INSERT INTO supply_technologies 
+        (prime_mover, fuel, area, balancing_topology, scenario)
+    VALUES (?, ?, ?, ?, ?)
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (prime_mover, fuel, area, balancing_topology, scenario))
+    conn.commit()
+    return cur.lastrowid
+
+
+def insert_transport_technologies(conn, arc_id=None, scenario=None):
+    """
+    Inserts a row into the transport_technologies table.
+    
+    Args:
+        conn (sqlite3.Connection): The database connection.
+        arc_id (int, optional): The associated arc ID (references arcs(id)). Defaults to None.
+        scenario (str, optional): The scenario name. Defaults to None.
+    
+    Returns:
+        int: The ID of the newly inserted transport_technologies row.
+    """
+    sql = """
+    INSERT INTO transport_technologies (arc_id, scenario)
+    VALUES (?, ?)
+    """
+    cur = conn.cursor()
+    cur.execute(sql, (arc_id, scenario))
     conn.commit()
     return cur.lastrowid
 

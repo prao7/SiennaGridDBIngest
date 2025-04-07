@@ -608,7 +608,20 @@ def insert_generation_units_data_RTS(conn, row):
                                                              row['cap'] if row['MVAR Inj'] > row['cap'] else (row['MVAR Inj'] if row['MVAR Inj'] > 0 else 0.00000001))
     
     # Get and return the entity ID for the generator
-    return functions_schema_ingest.get_entity_id(conn, 'generation_units', gen_id)
+    return functions_schema_ingest.get_entity_id(conn, 'generation_units', gen_id), gen_id
+
+
+def insert_hydro_reservoir(conn, row, gen_id):
+    """
+    Insert the hydro reservoir data into the database.
+    """
+
+    # Insert the hydro reservoir data into the database
+    hydro_res_id = functions_schema_ingest.insert_hydro_reservoir(conn, row['GEN UID'])
+
+    # Insert the hydro connections
+    functions_schema_ingest.insert_hydro_reservoir_connection(conn, gen_id, hydro_res_id)
+    
 
 
 def insert_day_ahead_generation(conn, da_data_df, entity_id, gen_name):
@@ -646,7 +659,7 @@ def insert_day_ahead_generation(conn, da_data_df, entity_id, gen_name):
         None                                            # metadata (or provide JSON if needed)
     )
 
-        # Insert into time series associations
+    # Insert into time series associations
     functions_schema_ingest.insert_time_series_associations(conn, da_time_series_id, entity_id)
 
     # Insert the data into the static time series
@@ -657,6 +670,7 @@ def insert_day_ahead_generation(conn, da_data_df, entity_id, gen_name):
         # Convert the timestamp to an ISO-formatted string
         if isinstance(current_ts, pd.Timestamp):
             current_ts = current_ts.isoformat()
+
             
         # Insert the data into the database
         functions_schema_ingest.insert_deterministic_time_series(
@@ -668,8 +682,6 @@ def insert_day_ahead_generation(conn, da_data_df, entity_id, gen_name):
         
 
         
-
-
 def insert_real_time_generation(conn, rt_data_df, entity_id, gen_name):
     """
     Insert the real time generation data into the database.
@@ -736,13 +748,16 @@ def insert_hydro_data_RTS(conn, row, directory_structure):
     rt_hydro_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_hydro.csv'))
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
-    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    gen_entity_id, _ = insert_generation_units_data_RTS(conn, row)
 
     # Insert the day ahead generation data into the database
     insert_day_ahead_generation(conn, da_hydro_data_df, gen_entity_id, row['GEN UID'])
 
     # Insert the real time generation data into the database
     insert_real_time_generation(conn, rt_hydro_data_df, gen_entity_id, row['GEN UID'])
+
+    # Insert the hydro reservoir data into the database
+    insert_hydro_reservoir(conn, row, gen_entity_id)
     
 
 def insert_pv_data_RTS(conn, row, directory_structure):
@@ -756,7 +771,7 @@ def insert_pv_data_RTS(conn, row, directory_structure):
     rt_pv_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_pv.csv'))
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
-    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    gen_entity_id, _ = insert_generation_units_data_RTS(conn, row)
 
     # Insert the day ahead generation data into the database
     insert_day_ahead_generation(conn, da_pv_data_df, gen_entity_id, row['GEN UID'])
@@ -776,7 +791,7 @@ def insert_csp_data_RTS(conn, row, directory_structure):
     rt_csp_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_Natural_Inflow.csv'))
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
-    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    gen_entity_id, _ = insert_generation_units_data_RTS(conn, row)
 
     # Insert the day ahead generation data into the database
     insert_day_ahead_generation(conn, da_csp_data_df, gen_entity_id, row['GEN UID'])
@@ -796,7 +811,7 @@ def insert_rtpv_data_RTS(conn, row, directory_structure):
     rt_rtpv_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_rtpv.csv'))
     
     # Get the entity ID for the generator and insert the generator into the generation_units table
-    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    gen_entity_id, _ = insert_generation_units_data_RTS(conn, row)
 
     # Insert the day ahead generation data into the database
     insert_day_ahead_generation(conn, da_rtpv_data_df, gen_entity_id, row['GEN UID'])
@@ -816,7 +831,7 @@ def insert_wind_data_RTS(conn, row, directory_structure):
     rt_wind_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_wind.csv'))
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
-    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    gen_entity_id, _ = insert_generation_units_data_RTS(conn, row)
 
     # Insert the day ahead generation data into the database
     insert_day_ahead_generation(conn, da_wind_data_df, gen_entity_id, row['GEN UID'])
@@ -831,7 +846,7 @@ def insert_thermal_data_RTS(conn, row):
     """
 
     # Get the entity ID for the generator and insert the generator into the generation_units table
-    gen_entity_id = insert_generation_units_data_RTS(conn, row)
+    gen_entity_id, _ = insert_generation_units_data_RTS(conn, row)
 
     if row['Fuel'] == 'NG' or row['Fuel'] == 'Oil':
         # Insert the operational data into the database
@@ -880,6 +895,50 @@ def insert_thermal_data_RTS(conn, row):
     functions_schema_ingest.insert_supplemental_attributes_association(conn, co2_emissions_at_id, gen_entity_id)
     
 
+def insert_storage_data_RTS(conn, storage_row, gen_row, directory_structure):
+    """
+    Insert the storage data into the database.
+    """
+
+    # Insert the storage unit inside the database
+    storage_id = functions_schema_ingest.insert_storage_units(
+        conn,
+        storage_row['GEN UID'],
+        get_prime_mover(gen_row['Unit Type']),
+        storage_row['Max Volume GWh']*1e3,
+        functions_schema_ingest.get_bus_name_from_id(conn, gen_row['Bus ID']),
+        gen_row['cap'],
+        gen_row['cap'] if gen_row['MVAR Inj'] > gen_row['cap'] else (gen_row['MVAR Inj'] if gen_row['MVAR Inj'] > 0 else 0.00000001),
+        np.sqrt(((float(gen_row['Storage Roundtrip Efficiency'])/100) + 0.00001)),
+        np.sqrt((float((gen_row['Storage Roundtrip Efficiency'])/100) + 0.00001))
+    )
+    
+    # If the unit is hydro, insert the time series
+    if gen_row['Fuel'] == 'Hydro':
+        # Get the DA storage data from the directory structure
+        da_storage_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_hydro.csv'))
+
+        # Get the RT storage data from the directory structure
+        rt_storage_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_hydro.csv'))
+
+        # Insert the day ahead generation data into the database
+        insert_day_ahead_generation(conn, da_storage_data_df, storage_id, gen_row['GEN UID'])
+
+        # Insert the real time generation data into the database
+        insert_real_time_generation(conn, rt_storage_data_df, storage_id, gen_row['GEN UID'])
+
+    elif gen_row['Fuel'] == 'Solar':
+        # Get the DA storage data from the directory structure
+        da_storage_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'DAY_AHEAD_Natural_Inflow.csv'))
+
+        # Get the RT storage data from the directory structure
+        rt_storage_data_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'REAL_TIME_Natural_Inflow.csv'))
+
+        # Insert the day ahead generation data into the database
+        insert_day_ahead_generation(conn, da_storage_data_df, storage_id, gen_row['GEN UID'])
+
+        # Insert the real time generation data into the database
+        insert_real_time_generation(conn, rt_storage_data_df, storage_id, gen_row['GEN UID'])
 
 
 def insert_generation_RTS(conn, directory_structure):
@@ -890,6 +949,12 @@ def insert_generation_RTS(conn, directory_structure):
     # Put the capacity data in a dataframe
     capacity_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'ReEDS_generator_database_final_RTS-GMLC_updated_nodal.csv'))
 
+    # Get the storage dataframe
+    storage_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'storage.csv'))
+
+    # Get the set of storage GEN UIDs
+    storage_gen_uids = set(storage_df['GEN UID'])
+
     # Insert the prime movers into the database
     insert_prime_mover_RTS(conn, capacity_df)
 
@@ -897,27 +962,246 @@ def insert_generation_RTS(conn, directory_structure):
     insert_fuels_RTS(conn, capacity_df)
 
     for _, row in capacity_df.iterrows():
-        if row["Fuel"] == "Wind" or row["Fuel"] == "Solar" or row["Fuel"] == "Hydro":
-            if row["Fuel"] == "Hydro":
-                insert_hydro_data_RTS(conn, row, directory_structure)
-            elif row["Fuel"] == "Solar":
-                if row["Unit Type"] == "PV":
-                    insert_pv_data_RTS(conn, row, directory_structure)
-                elif row["Unit Type"] == "CSP":
-                    insert_csp_data_RTS(conn, row, directory_structure)
-                elif row["Unit Type"] == "RTPV":
-                    insert_rtpv_data_RTS(conn, row, directory_structure)
-                pass
-            elif row["Fuel"] == "Wind":
-                insert_wind_data_RTS(conn, row, directory_structure)
-        else:
-            # If it's a thermal units, non-VRE then no need for time series.
-            # Insert the thermal data into the database
-            insert_thermal_data_RTS(conn, row)
+        # Check if the generator is a storage unit
+        if row['GEN UID'] in storage_gen_uids:
 
+            # Extract the storage row from the dataframe
+            storage_row = storage_df[storage_df['GEN UID'] == row['GEN UID']].iloc[0]
+
+            # Insert the storage data into the database
+            insert_storage_data_RTS(conn, storage_row, row, directory_structure)
+        else:
+            if row["Fuel"] == "Wind" or row["Fuel"] == "Solar" or row["Fuel"] == "Hydro":
+                if row["Fuel"] == "Hydro":
+                    insert_hydro_data_RTS(conn, row, directory_structure)
+                elif row["Fuel"] == "Solar":
+                    if row["Unit Type"] == "PV":
+                        insert_pv_data_RTS(conn, row, directory_structure)
+                    elif row["Unit Type"] == "CSP":
+                        insert_csp_data_RTS(conn, row, directory_structure)
+                    elif row["Unit Type"] == "RTPV":
+                        insert_rtpv_data_RTS(conn, row, directory_structure)
+                    pass
+                elif row["Fuel"] == "Wind":
+                    insert_wind_data_RTS(conn, row, directory_structure)
+            else:
+                # If it's a thermal units, non-VRE then no need for time series.
+                # Insert the thermal data into the database
+                insert_thermal_data_RTS(conn, row)
+            
+
+"""
+Processing and inserting supply curves from the reV supply curves
+Curves are aggregated by region and technology
+"""
+def create_sorted_dfs_by_region_class(file_path, ba_file_path):
+    # Read the CSV files into DataFrames
+    df = pd.read_csv(file_path)
+    ba_df = pd.read_csv(ba_file_path)
+    
+    # Create a dictionary to store unique BA values and associated buses
+    ba_dict = {ba: ba_df[ba_df['BA'] == ba]['Bus_ID'].values for ba in ba_df['BA'].unique()}
+    
+    # Create a dictionary to store DataFrames
+    dfs_dict = {}
+    
+    # Group by region and class and process each group
+    grouped_df = df.groupby(['region', 'class'])
+    
+    for (region, cls), group in grouped_df:
+        if region in ba_dict:
+            region_class_key = f"{region}_{cls}"
+            # Sort the DataFrame by capacity in ascending order
+            sorted_df = group.sort_values(by='capacity')
+            # Store the sorted DataFrame in the dictionary
+            dfs_dict[region_class_key] = sorted_df
+    
+    return dfs_dict, ba_dict
+
+
+def process_and_insert_supply_curves(dfs_dict, ba_dict, prime_mover, fuel, conn, directory_structure):
+    """
+    Supply technologies are aggregated at the bus level. What this method does is take in the reV supply curve, aggregate by 
+    bus, and enter the supply technologies, supply curves, reinforcement curves and time series for the given insert.
+    """
+
+    # Extracting the time series 
+    if fuel == 'Solar':
+        timeseries_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'pv_availability.csv'))
+    else:
+        timeseries_df = pd.read_csv(functions_handlers.find_filepath(directory_structure, 'wind_availability.csv'))
+    
+    prime_mover = get_prime_mover(prime_mover)
+
+    # First, create the supply technology class
+    supply_curve_id = functions_schema_ingest.insert_supply_technologies(conn, 
+                                                                         prime_mover,
+                                                                         fuel,
+                                                                         None,
+                                                                         None,
+                                                                         'Reference')
+
+    supply_curve_entity_id = functions_schema_ingest.get_entity_id(conn, 'supply_technologies', supply_curve_id)
+
+    # Define the output directory for testing
+    # output_directory = '/Users/prao/GitHub_Repos/SiennaInvest/test_supply_curves'
+    # os.makedirs(output_directory, exist_ok=True)
+
+    for region_class_key, df in dfs_dict.items():
+        region = region_class_key.split('_')[0]
+        if region in ba_dict:
+            buses = ba_dict[region]
+            
+            
+            for bus in buses:
+                # technology_class = df['class'].iloc[0]
+
+                # Data to insert into attributes table
+                entity_type = 'supply_technologies'
+                name = f"supply curve for {prime_mover} and {fuel} at {bus}"
+                
+                df = df.sort_values(by='capacity', ascending=True)
+                # Process DataFrame and create piecewise linear JSON blobs
+                piecewise_linear_data = []
+                from_x, from_y = 0, 0
+                for idx, row in df.iterrows():
+                    to_x = row['capacity']
+                    to_y = row['supply_curve_cost_per_mw']
+                    piecewise_linear_data.append({
+                        'from_x': from_x,
+                        'to_x': to_x,
+                        'from_y': from_y,
+                        'to_y': to_y
+                    })
+                    from_x, from_y = to_x, to_y
+
+                # Save the first piecewise linear data to CSV
+                # piecewise_linear_df = pd.DataFrame(piecewise_linear_data)
+                # piecewise_linear_df.to_csv(
+                #     os.path.join(output_directory, f"piecewise_linear_{prime_mover}_{bus}_supply_curve.csv"),
+                #     index=False
+                # )
+
+                # Insert piecewise linear data
+                piecewise_linear_blob = json.dumps(piecewise_linear_data)
+                piecewise_linear_blob = bytes(piecewise_linear_blob, 'utf-8')
+
+                # Insert the piecewise linear into the attributes
+                supply_curve_at_id = functions_schema_ingest.insert_attributes(conn,
+                                                          entity_type,
+                                                          name,
+                                                          piecewise_linear_blob)
+                
+
+                # Insert the attribute association
+                functions_schema_ingest.insert_attributes_associations(conn,
+                                                                       supply_curve_at_id,
+                                                                       supply_curve_entity_id)
+
+
+                # cursor.execute(insert_attribute_sql, (gen_entity_id, entity_type, data_type, name, piecewise_linear_blob))
+                
+
+                # Process DataFrame for the second piecewise linear insert
+                reinforcement_name = f"reinforcement curve for {prime_mover} and {fuel} at {bus}"
+                piecewise_linear_data_2 = []
+                from_x, from_y = 0, 0
+                for idx, row in df.iterrows():
+                    to_x = row['dist_km']
+                    to_y = row['reinforcement_dist_km']
+                    piecewise_linear_data_2.append({
+                        'from_x': from_x,
+                        'to_x': to_x,
+                        'from_y': from_y,
+                        'to_y': to_y
+                    })
+                    from_x, from_y = to_x, to_y
+
+                # Save the second piecewise linear data to CSV
+                # piecewise_linear_df_2 = pd.DataFrame(piecewise_linear_data_2)
+                # piecewise_linear_df_2.to_csv(
+                #     os.path.join(output_directory, f"piecewise_linear_{prime_mover}_{bus}_reinforcement_curve.csv"),
+                #     index=False
+                # )
+
+
+                # Insert second piecewise linear data
+                piecewise_linear_blob_2 = json.dumps(piecewise_linear_data_2)
+                piecewise_linear_blob_2 = bytes(piecewise_linear_blob_2, 'utf-8')
+                
+                # Insert the piecewise linear into the attributes
+                reinforcement_curve_at_id = functions_schema_ingest.insert_attributes(conn,
+                                                          entity_type,
+                                                          reinforcement_name,
+                                                          piecewise_linear_blob_2)
+                
+
+                # Insert the attribute association
+                functions_schema_ingest.insert_attributes_associations(conn,
+                                                                       reinforcement_curve_at_id,
+                                                                       supply_curve_entity_id)
+                
+                initial_ts = timeseries_df['Timestamps'].iloc[0]
+                if isinstance(initial_ts, pd.Timestamp):
+                    initial_ts = initial_ts.isoformat()
+                    
+                # Calculate the length (cast to int if needed)
+                length_val = len(timeseries_df["Timestamps"])
+
+                # Now, insert the time series
+                time_series_id = functions_schema_ingest.insert_time_series(conn,
+                                                                            'static_time_series',           # time_series_type
+                                                                            f'PV Time Series for {bus}',    # name
+                                                                            initial_ts,                     # initial_timestamp as a string
+                                                                            300,                            # resolution_ms
+                                                                            1,                              # horizon
+                                                                            1,                              # interval
+                                                                            length_val,                     # length
+                                                                            None,                           # uuid (or provide a string if needed)
+                                                                            '{"unit": "MW"}',               # features
+                                                                            None                            # metadata (or provide JSON if needed)
+                                                                            )
+                
+                # Insert into time series associations
+                functions_schema_ingest.insert_time_series_associations(conn, time_series_id, supply_curve_entity_id)
+
+                col = str(bus)
+
+                for i, row in timeseries_df.iterrows():
+                    # Current timestamp is
+                    current_ts = timeseries_df['Timestamps'].iloc[i]
+
+                    # Convert the timestamp to an ISO-formatted string
+                    if isinstance(current_ts, pd.Timestamp):
+                        current_ts = current_ts.isoformat()
+
+                    # Insert the data into the database
+                    functions_schema_ingest.insert_static_time_series(
+                        conn,
+                        time_series_id,
+                        current_ts,
+                        float(row[col])
+                    )
+                                                                    
 
 def insert_investment_options_RTS(conn, directory_structure):
-    pass
+    """
+    This function inserts the investment options for the RTS system.
+    """
+
+    file_path_solar = functions_handlers.find_filepath(directory_structure, 'upv_supply_curve-reference_ba.csv')
+    file_path_wind = functions_handlers.find_filepath(directory_structure, 'wind-ons_supply_curve-reference_ba.csv')
+    ba_file_path = functions_handlers.find_filepath(directory_structure, 'bus_mod_updatedwithBA.csv')
+
+    # Create the dictionary of sorted DataFrames
+    dfs_dict_solar, ba_dict = create_sorted_dfs_by_region_class(file_path_solar, ba_file_path)
+    dfs_dict_wind, ba_dict_wind = create_sorted_dfs_by_region_class(file_path_wind, ba_file_path)
+
+    process_and_insert_supply_curves(dfs_dict_solar, ba_dict, 'PV', 'Solar', conn, directory_structure)
+
+    # Loading the piecewise linear data for wind
+    process_and_insert_supply_curves(dfs_dict_wind, ba_dict_wind, 'Wind', 'Wind', conn, directory_structure)
+
 
 
 def process_and_ingest_RTS_data(conn, directory_structure):
@@ -937,7 +1221,7 @@ def process_and_ingest_RTS_data(conn, directory_structure):
     insert_generation_RTS(conn, directory_structure)
 
     # Fourth, insert the load data
-    # insert_loads_RTS(conn, directory_structure)
+    insert_loads_RTS(conn, directory_structure)
 
     # Finally, insert the investment options
     insert_investment_options_RTS(conn, directory_structure)

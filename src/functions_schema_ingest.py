@@ -1,4 +1,5 @@
 import sqlite3
+import pandas as pd
 
 
 def insert_entities(conn, entity_type, entity_id):
@@ -554,3 +555,23 @@ def get_bus_name_from_id(conn, bus_id):
         return result[0]
     else:
         return None
+    
+def get_all_transmission_line_arcs(conn):
+    """
+    This function retrieves all transmission arcs from the database that have an entity of transmission lines in the entity table.
+    It returns a DataFrame of transmission arc IDs.
+    """
+    sql = """
+    SELECT a.id
+    FROM arcs AS a
+    JOIN entities AS e1 ON a.from_to = e1.id
+    JOIN entities AS e2 ON a.to_from = e2.id
+    WHERE e1.entity_type = 'balancing_topologies'
+      AND e2.entity_type = 'balancing_topologies';
+    """
+    cur = conn.cursor()
+    cur.execute(sql)
+    results = cur.fetchall()
+    # Create a DataFrame with a column name "arc_id"
+    df = pd.DataFrame(results, columns=['arc_id'])
+    return df
